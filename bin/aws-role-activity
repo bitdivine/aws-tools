@@ -1,0 +1,54 @@
+#!/usr/bin/env node
+const usage = `
+Collect logs:
+    aws --profile staging-environment cloudtrail lookup-events --max-items 10000 > trail.json
+
+Show activity:
+    ${process.argv[1].split("/").pop()} trail.json
+
+`
+
+if (process.argv[2] === "--help") {
+	console.log(usage);
+	process.exit(0);
+}
+
+
+const fs = require('fs');
+const data = JSON.parse(fs.readFileSync(process.argv[2] || "/dev/stdin", {encoding: 'utf8'}));
+data.Events.forEach(event => event.CloudTrailEvent = JSON.parse(event.CloudTrailEvent));
+const table = data.Events.
+  filter(event => ["CloudTrailEvent", "userIdentity", "sessionContext", "sessionIssuer", "userName"].reduce((event, name) => event && event[name], event) !== undefined).
+  map(event =>  ({UserName: event.CloudTrailEvent.userIdentity.sessionContext.sessionIssuer.userName, EventSource: event.CloudTrailEvent.eventSource, EventName: event.CloudTrailEvent.eventName, Resources: event.Resources.length===0?[{}]:event.Resources}));
+
+function treeConcat(tree, path, values) {
+        path.reduce((node, next, index) => (index < path.length-1)?(node[next]?node[next]:(node[next]={},node[next])):(node[next]?node[next]=node[next].concat(values):node[next]=values), tree);
+	return tree;
+}
+
+function incrementPath(tree, path){
+	path.reduce((node, next, index) => (index < path.length-1)?(node[next]?node[next]:(node[next]={},node[next])):(node[next]?node[next]=node[next]+1:node[next]=1), tree);
+	return tree;
+}
+
+const tree = table.reduce((tree, record) => record.Resources.reduce((tree, resource) => incrementPath(tree, [record.UserName, record.EventSource, record.EventName, resource.ResourceType, resource.ResourceName]), tree), {});
+
+function find(tree, options, callback) {
+	const {maxdepth, prefix} = options;
+	const prepend = prefix || [];
+	if (prepend.length === maxdepth) {
+		callback(tree, prepend);
+	} else {
+		if (typeof(tree) === 'object') {
+			Object.keys(tree).forEach(key => find(tree[key], {maxdepth, prefix: prepend.concat([key])}, callback));
+		}
+	}
+}
+
+const ans = [];
+find(tree, {maxdepth:3}, (value, path) => ans.push([path[0], path[1].replace(".amazonaws.com",":")+path[2].replace(/[0-9]+(v[0-9]+)?$/,"")]))
+
+const role = process.argv[3];
+
+const role_ans = role === undefined?ans:ans.filter(record => record[0] === role).map(record => record[1]);
+role_ans.forEach(ans => console.log(JSON.stringify(ans).slice(1,-1)));
