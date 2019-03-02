@@ -1,0 +1,31 @@
+#!/usr/bin/env node
+const description =
+`
+  Convert cloudtrail logs into a tree:
+  { tree_levels: ["Role", "Action", "Resource"]
+  , tree:
+    { role1:
+      { action1:
+        { resource1: count
+        , resource2: count
+        }
+    ...
+  }
+`
+
+const jmespath = require('jmespath');
+const data = JSON.parse(require('fs').readFileSync(process.argv[2], {"encoding": "utf8"}));
+const tm = require('tree-math');
+const ans = { tree_levels: ["Role", "Action", "Resource"], tree: {} };
+
+data.Events.forEach(event => {
+	if (event.CloudTrailEvent) {
+		event.CloudTrailEvent = JSON.parse(event.CloudTrailEvent);
+	}
+});
+
+const query = "Events[?CloudTrailEvent.userIdentity.sessionContext.sessionIssuer.userName].{role:CloudTrailEvent.userIdentity.sessionContext.sessionIssuer.userName, source:CloudTrailEvent.eventSource, action: CloudTrailEvent.eventName, resources: CloudTrailEvent.resources}";
+const selection = jmespath.search(data, query);
+
+
+selection.forEach(record => console.log(JSON.stringify(record)));
