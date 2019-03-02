@@ -1,0 +1,20 @@
+#!/usr/bin/env node
+
+const fs = require('fs')
+
+const records = fs.readFileSync(process.argv[2], {encoding: 'utf8'}).split("\n").map(x => x.trim()).filter(x => x.length>0).map(x => JSON.parse(x));
+
+const action_resources = records.reduce((dict, record) => {
+	const action = record.source.split(".")[0] + ":" + record.action;
+	const list = dict[action] || [];
+	const items = new Set(list);
+	dict[action] =
+		  (items.has("*"))? dict[action]
+		: (record.resources === null)? ["*"]
+		: Array.from(new Set(list.concat(record.resources.map(r => r.ARN))));
+	return dict;
+}, {});
+
+const policy = Object.keys(action_resources).map(key => ({"Action": key, "Effect": "Allow", "Resource": action_resources[key]}));
+
+console.log(JSON.stringify(policy, null, 2));
